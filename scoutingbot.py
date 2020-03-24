@@ -111,7 +111,7 @@ def predictmatch():
   teams = get_match_alliances(event, match_number)
   if teams == None:
     return MATCH_NOT_FOUND
-  
+
   post_predictions(event, teams, request.form['response_url'])
   
   return jsonify(
