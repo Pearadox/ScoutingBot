@@ -13,6 +13,13 @@ from zappa.asynchronous import task
 
 app = Flask(__name__)
 
+
+"-----------------------------------------"
+"-----------------------------------------"
+"---- CONSTANT DECLARATION START HERE ----"
+"-----------------------------------------"
+"-----------------------------------------"
+
 # Dictionary containing the real-life event name and the event ID as stored in the database
 EVENT_IDS = {
   'plano': 'txpla',
@@ -31,24 +38,13 @@ MATCH_NOT_FOUND = {
   'text': 'Match not found'
 }
 
-def is_request_valid(request: request) -> bool:
-  """
-  Check that the POST request is actually from Slack using slack's signing secret.
-  """
-  
-  key = os.environ.get("SLACK_SIGNING_SECRET")
-  basestring = 'v0:' + request.headers['X-Slack-Request-Timestamp'] + ':' + str(request.get_data(), 'utf-8')
 
-  # Hash the basestring using the signing secret as the key in order to get the signature
-  signature = 'v0=' + hmac.new(
-    bytes(key, 'utf-8'),
-    bytes(basestring, 'utf-8'),
-    hashlib.sha256
-  ).hexdigest()
-  slacksig = request.headers['X-Slack-Signature']
+"-----------------------------------------"
+"-----------------------------------------"
+"----- COMMANDS AND TASKS START HERE -----"
+"-----------------------------------------"
+"-----------------------------------------"
 
-  # If the signature is equal to the signature sent by slack, then it is indeed from slack.
-  return hmac.compare_digest(slacksig, signature)
 
 @app.route('/commands/scoutinghelp', methods=['POST'])
 def scoutinghelp():
@@ -179,14 +175,45 @@ def estimatematch():
     text = str([str(x) + '-' + str(get_estimated_score(get_match_data(event, match_data, x))) for x in teams])
   )
   
+"-----------------------------------------"
+"-----------------------------------------"
+"------- HELPER METHODS START HERE -------"
+"-----------------------------------------"
+"-----------------------------------------"
+  
+  
+def is_request_valid(request: request) -> bool:
+  """
+  Check that the POST request is actually from Slack using slack's signing secret.
+  
+  :returns: whether the POST request was actually from slack
+  """
+  
+  key = os.environ.get("SLACK_SIGNING_SECRET")
+  basestring = 'v0:' + request.headers['X-Slack-Request-Timestamp'] + ':' + str(request.get_data(), 'utf-8')
+
+  # Hash the basestring using the signing secret as the key in order to get the signature
+  signature = 'v0=' + hmac.new(
+    bytes(key, 'utf-8'),
+    bytes(basestring, 'utf-8'),
+    hashlib.sha256
+  ).hexdigest()
+  slacksig = request.headers['X-Slack-Signature']
+
+  # If the signature is equal to the signature sent by slack, then it is indeed from slack.
+  return hmac.compare_digest(slacksig, signature)
+  
 def find_event_and_match(text: str) -> typing.Tuple[typing.Optional['string'], typing.Optional[int]]:
   """
   Finds the event ID and QM number from the text sent from the command.
+  
+  :returns: A tuple (event ID, match number) extracted from the text.
   """
   for event in EVENT_IDS:
     if event in text.lower():
       numbers = re.findall(r'\d+', text)
       match_number = 0
+      
       if len(numbers) == 1:
         match_number = numbers[0]
         return (EVENT_IDS[event], int(match_number))
@@ -200,7 +227,10 @@ def find_event_and_match(text: str) -> typing.Tuple[typing.Optional['string'], t
 def get_teams_at_match(event: str, match: int) -> typing.Optional[typing.List[int]]:
   """
   Get a list of teams at a match
+  
+  :returns: A list of team numbers at a match
   """
+  
   match_data = get_match_data(event, match)
   if match_data == None:
     return None
@@ -209,6 +239,8 @@ def get_teams_at_match(event: str, match: int) -> typing.Optional[typing.List[in
 def get_estimated_score(match_data: dict) -> float:
   """
   Estimate the score contribution of a particular team based on their match data.
+  
+  :returns: A float estimating the contribution.
   """
   
   auto_high = {match_data['auto_HighClose']: match_data['auto_conInnerClose'],
@@ -229,14 +261,18 @@ def get_estimated_score(match_data: dict) -> float:
   
   score = 0
   
+  # Gives autonomous points
   for x in auto_high:
     score += (4.3, 4.8)[auto_high[x]] * x
   score += auto_low * 2
   if auto_line: score += 5
   
+  # Gives teleop points
   for x in tele_high:
     score += (2.15, 2.4)[tele_high[x]] * x
   score += tele_low
+  
+  # Gives endgame points
   if climbed: score += 25
   if parked: score += 5
   
@@ -245,7 +281,10 @@ def get_estimated_score(match_data: dict) -> float:
 def get_team_statistics(event: str, team: int) -> typing.Tuple[float, float]:
   """
   Get the cumulative mean and standard deviation of a team at a certain event.
+  
+  :return: A tuple of (mean, standard deviation)
   """
+  
   matches = requests.get(f'https://us-central1-pearadox-2020.cloudfunctions.net/GetMatchDataByTeamAndCompetition/{event}/{team:4}').json()
   estimates = [get_estimated_score(matches[x]) for x in matches]
   mean = statistics.mean(estimates)
@@ -256,23 +295,42 @@ def get_match_data(event: str, match: int, team: int = -1):
   """
   Get the match data for a match, or for a specific team at that match.
   """
+  
   if team < 0:
     return requests.get(f'https://us-central1-pearadox-2020.cloudfunctions.net/GetMatchData/{event}/{match:03d}-').json()
   else:
     return requests.get(f'https://us-central1-pearadox-2020.cloudfunctions.net/GetMatchData/{event}/{match:03d}-').json()[f'{match:03}-{team:4}']
   
 def get_match_alliances(event: str, match: int) -> typing.Dict[str, typing.List[int]]:
+  """
+  Get the alliance partners in a certain match
+  
+  :returns: dict with keys 'red' and 'blue'.
+  """
   match_data = requests.get(f'https://us-central1-pearadox-2020.cloudfunctions.net/GetSingleByTypeAndId/matches/{event}').json()
-  match_data = [x for x in filter(lambda l: int(l['match']) == match, match_data.values())][0]
+  
+  # Searches for the correct database entry
+  match_data = [x for x in filter(lambda l: int(l['match']) == match, match_data.values())][0] 
+  
   red = []
   blue = []
+  
+  # Adds the team numbers of each alliance to their lists
   for num in range(1, 4):
     red.append(int(match_data[f'r{num}']))
+    
   for num in range(1, 4):
     blue.append(int(match_data[f'b{num}']))
+    
   return {'red': red, 'blue': blue}
 
 def get_team_alliance(event: str, match: int, team: int) -> typing.Optional[str]:
+  """
+  Get the alliance a team is on in a certain match
+  
+  :returns: 'red' or 'blue', or None if team is not in the match
+  """
+  
   if team in get_match_alliances(event, match)['red']:
     return 'red'
   elif team in get_match_alliances(event, match)['blue']:
