@@ -1,2 +1,2 @@
 .python-version
-zappa_settings.json
+__pycache__/
